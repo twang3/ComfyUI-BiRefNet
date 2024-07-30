@@ -1,5 +1,7 @@
 import os
 import sys
+import time
+
 sys.path.insert(0, os.path.dirname(__file__))
 
 from collections import defaultdict
@@ -97,17 +99,21 @@ class BiRefNet_node:
                 device = "cpu"
 
         if not self.ready:
-            weight_path = os.path.join(models_dir, "BiRefNet", "BiRefNet-ep480.pth")
+            weight_path = os.path.join(models_dir, "BiRefNet", "BiRefNet-DIS_ep580.pth")
+            before = time.time()
             self.load(weight_path, device=device)
-        
+            print(f"BiRefNet model loading time: {time.time() - before:.2f}s")
+
         image = image.squeeze().numpy()
         img = self.processor(image)
         inputs = img[None, ...].to(device)
         logger.debug(f"{inputs.shape}")
-        
+
+        before = time.time()
         with torch.no_grad():
             self.model.to(device)  # Move the model to the selected device
             scaled_preds = self.model(inputs)[-1].sigmoid()
+        print(f"BiRefNet model inference time: {time.time() - before:.2f}s")
 
         res = nn.functional.interpolate(
             scaled_preds[0].unsqueeze(0),
