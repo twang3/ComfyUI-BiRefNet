@@ -2,6 +2,9 @@ import os
 import sys
 import time
 
+from comfy.model_management import get_torch_device
+from comfy_extras.nodes_cache import load_model_cached
+
 sys.path.insert(0, os.path.dirname(__file__))
 
 from collections import defaultdict
@@ -47,18 +50,23 @@ class BiRefNet_node:
             map_location = 'cpu' if device == 'cpu' else None
             if device == 'mps' and torch.backends.mps.is_available():
                 map_location = torch.device('mps')
-                
-            self.model = BiRefNet()
-            state_dict = torch.load(weight_path, map_location=map_location)
-            unwanted_prefix = '_orig_mod.'
-            for k, v in list(state_dict.items()):
-                if k.startswith(unwanted_prefix):
-                    state_dict[k[len(unwanted_prefix):]] = state_dict.pop(k)
-            
-            self.model.load_state_dict(state_dict)
-            self.model.to(device)
-            self.model.eval()
 
+            def load_model():
+                start = time.time()
+                model = BiRefNet()
+                state_dict = torch.load(weight_path, map_location=map_location)
+                unwanted_prefix = '_orig_mod.'
+                for k, v in list(state_dict.items()):
+                    if k.startswith(unwanted_prefix):
+                        state_dict[k[len(unwanted_prefix):]] = state_dict.pop(k)
+
+                model.load_state_dict(state_dict)
+                model.to(device)
+                model.eval()
+                print(f"BiRefNet model loaded in {time.time() - start:.2f}s")
+                return model
+
+            self.model = load_model_cached(weight_path, load_model, device)
             self.processor = BiRefNet_img_processor(config)
             self.ready = True
             if verbose:
@@ -94,15 +102,13 @@ class BiRefNet_node:
             if torch.backends.mps.is_available():
                 device = "mps"
             elif torch.cuda.is_available():
-                device = "cuda"
+                device = get_torch_device()
             else:
                 device = "cpu"
 
         if not self.ready:
             weight_path = os.path.join(models_dir, "BiRefNet", "BiRefNet-DIS_ep580.pth")
-            before = time.time()
             self.load(weight_path, device=device)
-            print(f"BiRefNet model loading time: {time.time() - before:.2f}s")
 
         image = image.squeeze().numpy()
         img = self.processor(image)
